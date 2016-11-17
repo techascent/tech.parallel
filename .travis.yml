@@ -1,0 +1,6 @@
+language: clojure
+jdk: oraclejdk8
+before_install:
+- mkdir -p ~/.lein && cp profiles.clj ~/.lein/profiles.clj
+
+script: GIT_IS_MASTER=`git branch --contains HEAD | grep -q master ; echo $?` ./build-and-deploy.sh
