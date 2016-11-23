@@ -19,7 +19,7 @@ Parallelization and threading primitives.  Functions for:
 
 Please see:
 
-!(test/think/parallel/core_test.clj)
+![core_text.clj](test/think/parallel/core_test.clj)
 
 
 
