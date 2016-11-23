@@ -1,4 +1,4 @@
-# think.parallel
+# think.parallel ![TravisCI](https://travis-ci.org/thinktopic/think.parallel.svg?branch=master)
 
 
 ```clojure
