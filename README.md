@@ -1,5 +1,10 @@
 # think.parallel
 
+
+```clojure
+[thinktopic/think.parallel "0.1.0"]
+```
+
 Parallelization and threading primitives.  Functions for:
 
 
@@ -8,6 +13,14 @@ Parallelization and threading primitives.  Functions for:
 
 
 * conversion of async channels to sequences.
+
+
+## Examples
+
+Please see:
+
+!(test/think/parallel/core_test.clj)
+
 
 
 ## License
