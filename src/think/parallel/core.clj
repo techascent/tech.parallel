@@ -89,6 +89,10 @@ starting from 0 produce an ordered sequence."
      (recur-order-indexed-sequence order-mechanism original-sequence
                                    index-fn 0))))
 
+(defn get-default-parallelism
+  []
+  (+ (.availableProcessors (Runtime/getRuntime)) 2))
+
 
 (defn queued-sequence
   "Returns a map containing a shutdown function *and* a sequence
@@ -110,8 +114,8 @@ in flight; queue-depth processed items in the queue and num-threads items either
 processing or waiting to be added to the queue."
   [map-fn map-args & {:keys [ordered? queue-depth num-threads thread-init-fn]
                       :or {ordered? true
-                           queue-depth (ForkJoinPool/getCommonPoolParallelism)
-                           num-threads (ForkJoinPool/getCommonPoolParallelism)
+                           queue-depth (get-default-parallelism)
+                           num-threads (get-default-parallelism)
                            thread-init-fn nil}}]
   ;;Ensure there are only as many threads as necessary when in ordered mode.
   (let [num-threads (long
@@ -217,9 +221,15 @@ processing or waiting to be added to the queue."
 
 (defn queued-pmap
   "Given a queue depth and a mapping function, run a pmap like operation.
+
 Not for use with infinite sequences as the threads will hang around forever
 processing the infinite sequence.  Call queued-sequence directly and use the
-shutdown-fn when the infinite sequence isn't necessary any more."
+shutdown-fn when the infinite sequence isn't necessary any more.
+
+Note that there will possibly be queue-depth + 1 items in flight as
+the second the first output item is dereferenced there is a chance for the
+processing threads to grab an item and both will be in flight, adding up to
+queue-depth + 1."
   [queue-depth map-fn & args]
   (:sequence (queued-sequence map-fn args
                               :queue-depth queue-depth
