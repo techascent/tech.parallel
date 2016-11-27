@@ -1,4 +1,4 @@
-(defproject thinktopic/think.parallel "0.2.0-SNAPSHOT"
+(defproject thinktopic/think.parallel "0.2.0"
   :description "Library for parallelization primitives"
   :url "http://github.com/thinktopic/think.parallel"
   :license {:name "Eclipse Public License"
