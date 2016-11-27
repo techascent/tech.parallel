@@ -126,7 +126,10 @@ on the read-head of the input sequence.
 
 **When callers dereference the output sequence,
 however, there may at that instant be queue-depth + 1 items in flight.  Callers
-need to be aware of this.**"
+need to be aware of this.**
+
+A thread initialization function is available in case you have an operation
+that needs to happen exactly once per thread."
   [map-fn map-args & {:keys [queue-depth num-threads thread-init-fn]
                       :or {queue-depth (get-default-parallelism)
                            num-threads (get-default-parallelism)
@@ -216,7 +219,7 @@ queue-depth + 1."
 (defn launch-parallel-for
   "Given a function that takes exactly 2 arguments, a start-index and a length,
 call this function exactly N times where N is ForkJoinPool/getCommonPoolParallelism.
-Indexes will be split as evenly as possible among the functions."
+Indexes will be split as evenly as possible among the invocations."
   [^long num-iters parallel-for-fn]
   (if (< num-iters (* 2 (ForkJoinPool/getCommonPoolParallelism)))
     (parallel-for-fn 0 num-iters)
