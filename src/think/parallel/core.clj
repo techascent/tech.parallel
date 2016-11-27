@@ -99,13 +99,26 @@ Shutting down the sequence is necessary in the case of an infinite
 so you can free the resources associated with this queued sequence.
 When using ordering it does not make any sense to have
 num-threads > queue-depth because we cannot read more than queue-depth ahead
-into the src seq."
+into the src seq.
+
+When using ordering, there is an additional invariant that there are never more
+that queue-depth items in flight.  This invariant means there has to be blocking
+on the read-head of the input sequence.
+
+When not using ordering, there can be up to queue-depth + num-threads items
+in flight; queue-depth processed items in the queue and num-threads items either
+processing or waiting to be added to the queue."
   [map-fn map-args & {:keys [ordered? queue-depth num-threads thread-init-fn]
                       :or {ordered? true
                            queue-depth (ForkJoinPool/getCommonPoolParallelism)
                            num-threads (ForkJoinPool/getCommonPoolParallelism)
                            thread-init-fn nil}}]
-  (let [primary-sequence (partition (count map-args) (apply interleave map-args))
+  ;;Ensure there are only as many threads as necessary when in ordered mode.
+  (let [num-threads (long
+                     (if ordered?
+                       (min num-threads queue-depth)
+                       num-threads))
+        primary-sequence (partition (count map-args) (apply interleave map-args))
         ;;Channels being written to upon dereference of the lazy sequence
         write-chan-sequence (if ordered?
                               (repeatedly #(async/chan 1))
