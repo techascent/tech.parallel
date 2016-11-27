@@ -3,18 +3,33 @@
             [think.parallel.core :as parallel]))
 
 
+(deftest order-indexed-sequence
+  (is (= (vec (range 1000))
+         (vec
+          (parallel/order-indexed-sequence identity
+                                           (shuffle (range 1000)))))))
+
+
 (deftest basic-queued-sequence
-  (let [result (:sequence (parallel/queued-sequence 16 10 inc (range 1000)))]
+  (let [result (:sequence (parallel/queued-sequence inc [(range 1000)]
+                                                    :ordered? false))]
     (is (= (count (distinct result)) 1000))
-    (is (= (vec (sort result)) (vec (range 1 1001))))))
+    (is (= (sort (vec result)) (vec (range 1 1001))))))
+
+
+(deftest ordered-queued-sequence
+  (let [result (:sequence (parallel/queued-sequence inc [(range 1000)]
+                                                    :ordered? true))]
+    (is (= (count (distinct result)) 1000))
+    (is (= (vec result) (vec (range 1 1001))))))
 
 
 (deftest queued-sequence-with-exception
-  (let [result (:sequence (parallel/queued-sequence 16 10 (fn [idx]
-                                                            (when (= idx 100)
-                                                              (throw (Exception. "Failure!!")))
-                                                            (inc idx))
-                                                    (range 1000)))]
+  (let [result (:sequence (parallel/queued-sequence (fn [idx]
+                                                      (when (= idx 100)
+                                                        (throw (Exception. "Failure!!")))
+                                                      (inc idx))
+                                                    [(range 1000)]))]
     (is (thrown? RuntimeException (vec result)))))
 
 

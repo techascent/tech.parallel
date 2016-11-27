@@ -1,14 +1,46 @@
 (ns think.parallel.core
   (:require [clojure.core.async :as async])
-  (:import [java.util.concurrent ForkJoinPool Callable Future]))
+  (:import [java.util.concurrent ForkJoinPool Callable Future]
+           [java.util ArrayDeque PriorityQueue Comparator]))
 
 
-(defn async-channel-to-lazy-seq
-  "Convert a core-async channel into a lazy sequence where each item is read via
-async/<!!.  Sequence ends when channel returns nil."
+(defn- deque-seq
+  [^ArrayDeque deque input-seq ^long buffer-depth]
+  (let [input-seq
+        (loop [deque-size (.size deque)
+               input-seq input-seq]
+          (if (and (< deque-size buffer-depth)
+                     (seq input-seq))
+            (let [seq-item (first input-seq)]
+              (.add deque seq-item)
+              (recur (.size deque)
+                     (rest input-seq)))
+            input-seq))]
+    (when (> (.size deque) 0)
+      (let [first-item (.remove deque)]
+        (cons first-item (lazy-seq (deque-seq deque input-seq buffer-depth)))))))
+
+
+(defn buffered-seq
+  "Given an input lazy sequence, realize up to N items ahead but produce
+the same sequence"
+  [^long buffer-depth input-seq]
+  (let [deque (ArrayDeque. buffer-depth)]
+    (deque-seq deque input-seq buffer-depth)))
+
+
+(defn- recur-async-channel-to-lazy-seq
   [to-chan]
   (when-let [item (async/<!! to-chan)]
-    (cons item (lazy-seq (async-channel-to-lazy-seq to-chan)))))
+    (cons item (lazy-seq (recur-async-channel-to-lazy-seq to-chan)))))
+
+(defn async-channel-to-lazy-seq
+  "Convert a core-async channel into a lazy sequence where each item
+is read via async/<!!.  Sequence ends when channel returns nil."
+  [to-chan]
+  ;;Avoid reading from to-chan immediately as this could force an immediate
+  ;;block where one wasn't expected
+  (lazy-seq (recur-async-channel-to-lazy-seq to-chan)))
 
 
 (defn create-next-item-fn
@@ -24,58 +56,161 @@ returns the next item in the sequence in a mutable fashion."
             next-item))))))
 
 
+(defn- recur-order-indexed-sequence
+  "Given a sequence where we can extract an integer index from each item
+in the sequence *and* a priority queue that is ordered on that index
+we read from a possibly out of order original sequence and use the priority
+queue in order to find the next item."
+  [^PriorityQueue order-mechanism original-sequence index-fn next-index]
+  (loop [next-item (.peek order-mechanism)
+         original-sequence original-sequence]
+    (if (and next-item
+             (= (long next-index)
+                (long (index-fn next-item))))
+      (cons (.poll order-mechanism)
+            (lazy-seq
+             (recur-order-indexed-sequence order-mechanism original-sequence
+                                           index-fn (inc (long next-index)))))
+      (when-let [insert-item (first original-sequence)]
+        (.add order-mechanism insert-item)
+        (recur (.peek order-mechanism)
+               (rest original-sequence))))))
+
+
+(defn order-indexed-sequence
+  "Given a possibly unordered original sequence and a function that returns indexes
+starting from 0 produce an ordered sequence."
+  [index-fn original-sequence]
+  (let [comp (comparator (fn [a b]
+                           (< (long (index-fn a))
+                              (long (index-fn b)))))
+        order-mechanism (PriorityQueue. 5 comp)]
+    (lazy-seq
+     (recur-order-indexed-sequence order-mechanism original-sequence
+                                   index-fn 0))))
+
+
 (defn queued-sequence
   "Returns a map containing a shutdown function *and* a sequence
 derived from the queue operation:
 {:shutdown-fn
  :sequence}
-Even though there is a shutdown function, users still need to drain the rest of the sequence after
-calling shutdown.  Does not preserve order of input sequence; this would cause deadlock when
-used in combination with a queue of a fixed depth and a naive implementation.  An implementation
-that blocks on read as well on write for a given window of data would preserve order while avoiding
-deadlock."
-  [queue-depth num-proc-threads map-fn & args]
-  (let [primary-sequence (partition (count args) (apply interleave args))
+Shutting down the sequence is necessary in the case of an infinite
+so you can free the resources associated with this queued sequence.
+When using ordering it does not make any sense to have
+num-threads > queue-depth because we cannot read more than queue-depth ahead
+into the src seq."
+  [map-fn map-args & {:keys [ordered? queue-depth num-threads thread-init-fn]
+                      :or {ordered? true
+                           queue-depth (ForkJoinPool/getCommonPoolParallelism)
+                           num-threads (ForkJoinPool/getCommonPoolParallelism)
+                           thread-init-fn nil}}]
+  (let [primary-sequence (partition (count map-args) (apply interleave map-args))
+        ;;Channels being written to upon dereference of the lazy sequence
+        write-chan-sequence (if ordered?
+                              (repeatedly #(async/chan 1))
+                              (repeat :no-channel))
+        ;;the read sequence is window-size behind the write-sequence
+        ;;These channels are read by the machinery in order to avoid the processing
+        ;;threads getting too far ahead and thus causing deadlock because both the
+        ;;queuing and ordering contracts cannot be fullfilled
+        read-chan-sequence (concat (repeat queue-depth :no-channel)
+                                   write-chan-sequence)
+        ;;The channels we are currently waiting on.
+        waiting-read-channels (atom #{})
+        ;;Create a sequence where reading the next item forces a read from a channel
+        ;;that was filled when an item window-size ahead was handled on the
+        ;;read side of the queue.  This means we can only have window size items
+        ;;in the pipeline at any given time so if we want ordered results
+        ;;it doesn't make any sense to have thread-count > queue-depth because
+        ;;we have to restrict the processing of items to queue-depth
+        ;;(which is window size).  Also add an index which allows us to order the output
+        ;;again on the read side.
+        read-sequence (->> (interleave primary-sequence
+                                       read-chan-sequence
+                                       write-chan-sequence)
+                           (partition 3)
+                           (map-indexed (fn [idx [item read-channel write-channel]]
+                                          (when-not (= read-channel :no-channel)
+                                            ;;Force blocking here if something got too far
+                                            ;;ahead but keep track of the channels are are
+                                            ;;blocking on to allow clean shutdown even when
+                                            ;;we are blocking on some number of channels.
+                                            (swap! waiting-read-channels conj read-channel)
+                                            (async/<!! read-channel)
+                                            (swap! waiting-read-channels disj read-channel))
+                                          [(long idx) item write-channel])))
         queue (async/chan queue-depth)
-        pool (ForkJoinPool. num-proc-threads)
-        next-item-fn (create-next-item-fn primary-sequence)
+        pool (ForkJoinPool. (long num-threads))
+        next-item-fn (create-next-item-fn read-sequence)
         process-count (atom 0)
         active (atom true)
-        process-fn (fn []
-                     (swap! process-count inc)
-                     (try
-                       (loop [next-item (next-item-fn)]
-                         (if (and next-item @active)
-                           (do
-                             (async/>!! queue (apply map-fn next-item))
-                             (recur (next-item-fn)))))
-                       (catch Throwable e
-                         (reset! active false)
-                         (async/>!! queue {:queued-pmap-error e})
-                         (async/close! queue)))
-                     (when (= (swap! process-count dec) 0)
-                       (async/close! queue)
-                       (.shutdown pool)))
-        _ (doseq [idx (range (ForkJoinPool/getCommonPoolParallelism))]
-            (.submit pool ^Callable process-fn))
-        return-sequence  (map (fn [item]
-                                (when-let [^Throwable nested-exception (:queued-pmap-error item)]
-                                  (throw (RuntimeException. "Error during queued sequence execution:" nested-exception)))
-                                item)
-                              (async-channel-to-lazy-seq queue))
         shutdown-fn (fn []
                       (reset! active false)
+                      ;;Close queue channel
                       (async/close! queue)
-                      (.shutdown pool))]
-    {:sequence return-sequence
+                      ;;Close all blocking read channels
+                      (loop [read-channels @waiting-read-channels]
+                        (when (seq read-channels)
+                         (doseq [read-chan read-channels]
+                           (async/close! read-chan)
+                           (swap! waiting-read-channels disj read-chan))
+                         (recur @waiting-read-channels)))
+                      (.shutdown pool))
+
+        process-fn (fn []
+                     (swap! process-count inc)
+                     (when thread-init-fn
+                       (thread-init-fn))
+                     (try
+                       (loop [next-read-item (next-item-fn)]
+                         (when (and next-read-item @active)
+                           (let [[idx next-item write-channel] next-read-item]
+                             (async/>!! queue [idx (apply map-fn next-item) write-channel])
+                             (recur (next-item-fn)))))
+                       (catch Throwable e
+                         (async/>!! queue {:queued-sequence-error e})
+                         (shutdown-fn)))
+                     (when (= (swap! process-count dec) 0)
+                       (shutdown-fn)))
+
+        ;;Catch errors here and rethrow on main thread before attempting ordering
+        queue-seq (->>  (async-channel-to-lazy-seq queue)
+                        (map (fn [item]
+                               (when-let [^Throwable nested-exception
+                                          (:queued-sequence-error item)]
+                                 (throw (RuntimeException.
+                                         "Error during queued sequence execution:"
+                                         nested-exception)))
+                               item)))
+        ;;Optionally order sequence based on index.
+        output-seq (if ordered?
+                     (order-indexed-sequence first queue-seq)
+                     queue-seq)]
+    ;;Start up all processing threads
+    (doseq [thread-idx (range num-threads)]
+      (.submit pool ^Callable process-fn))
+
+    ;;convert sequence into output of map-fn while at the same time
+    ;;notifying on dereference that we can read the next item in
+    ;;from the window if we are using ordering.
+    {:sequence (map (fn [[idx item write-chan]]
+                      (when-not (= write-chan :no-channel)
+                        (async/>!! write-chan 1))
+                      item)
+                    output-seq)
      :shutdown-fn shutdown-fn}))
 
 
 (defn queued-pmap
   "Given a queue depth and a mapping function, run a pmap like operation.
-This operation does not preserve order, however."
+Not for use with infinite sequences as the threads will hang around forever
+processing the infinite sequence.  Call queued-sequence directly and use the
+shutdown-fn when the infinite sequence isn't necessary any more."
   [queue-depth map-fn & args]
-  (:sequence (apply queued-sequence queue-depth 16 map-fn args)))
+  (:sequence (queued-sequence map-fn args
+                              :queue-depth queue-depth
+                              :ordered? true)))
 
 
 
