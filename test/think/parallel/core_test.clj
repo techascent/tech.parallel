@@ -79,6 +79,12 @@
                            (aset result-ary idx (inc idx)))
     (is (= (count (distinct (vec result-ary))) 1000))))
 
+(defmacro or=
+  "Is a equal to b or c"
+  [a b c]
+  `(let [a# ~a]
+     (or (= a# ~b)
+         (= a# ~c))))
 
 (deftest buffered-seq
   (let [realized-count (atom 0)
@@ -93,9 +99,10 @@
     ;;If the pmap thread has launched then this number is 1.
     ;;If it hasn't yet then this number is 0.  We haven't blocked
     ;;on it yet so it could be legitimately be either 1 or 0.
-    (is (or (= 0 @realized-count)
-            (= 1 @realized-count)))
+    ;;This is true for any of the realized counts and it is important
+    ;;to understand this ambiguity.
+    (is (or= @realized-count 0 1))
     (is (= 0 (first test-seq)))
-    (is (= 6 @realized-count))
+    (is (or= @realized-count 5 6))
     (is (= 1 (second test-seq)))
-    (is (= 7 @realized-count))))
+    (is (or= @realized-count 6 7))))
