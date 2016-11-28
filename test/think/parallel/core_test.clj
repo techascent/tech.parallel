@@ -10,13 +10,6 @@
                                            (shuffle (range 1000)))))))
 
 
-(deftest basic-queued-sequence
-  (let [result (:sequence (parallel/queued-sequence inc [(range 1000)]
-                                                    :ordered? false))]
-    (is (= (count (distinct result)) 1000))
-    (is (= (sort (vec result)) (vec (range 1 1001))))))
-
-
 (deftest ordered-queued-sequence
   (let [result (:sequence (parallel/queued-sequence inc [(range 1000)]
                                                     :ordered? true))]
@@ -31,6 +24,11 @@
                                                       (inc idx))
                                                     [(range 1000)]))]
     (is (thrown? RuntimeException (vec result)))))
+
+
+(deftest queue-pmap-no-queue
+  (let [result (vec (parallel/queued-pmap 0 inc (range 100)))]
+    (is (= result (vec (range 1 101))))))
 
 
 (deftest ordered-queued-sequence-items-in-flight

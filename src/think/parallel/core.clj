@@ -209,10 +209,14 @@ shutdown-fn when the infinite sequence isn't necessary any more.
 Note that there will possibly be queue-depth + 1 items in flight as
 the instant the first output item is dereferenced there is a chance for the
 processing threads to grab an item and both will be in flight, adding up to
-queue-depth + 1."
+queue-depth + 1.
+
+A queue depth of zero indicates to use a normal map operation."
   [queue-depth map-fn & args]
-  (:sequence (queued-sequence map-fn args
-                              :queue-depth queue-depth)))
+  (if (= 0 queue-depth)
+    (apply map map-fn args)
+    (:sequence (queued-sequence map-fn args
+                                :queue-depth queue-depth))))
 
 
 
