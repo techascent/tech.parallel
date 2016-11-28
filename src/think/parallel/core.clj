@@ -23,11 +23,13 @@
 
 (defn buffered-seq
   "Given an input lazy sequence, realize up to N items ahead but produce
-the same sequence"
+the same sequence.  Defaults to the original seq for buffer-depth of 0."
   [^long buffer-depth input-seq]
-  (let [deque (ArrayDeque. buffer-depth)]
-    (lazy-seq
-     (deque-seq deque input-seq buffer-depth))))
+  (if (= 0 (max buffer-depth 0))
+    input-seq
+    (let [deque (ArrayDeque. buffer-depth)]
+      (lazy-seq
+       (deque-seq deque input-seq buffer-depth)))))
 
 
 (defn- recur-async-channel-to-lazy-seq
