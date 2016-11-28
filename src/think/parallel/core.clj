@@ -26,7 +26,8 @@
 the same sequence"
   [^long buffer-depth input-seq]
   (let [deque (ArrayDeque. buffer-depth)]
-    (deque-seq deque input-seq buffer-depth)))
+    (lazy-seq
+     (deque-seq deque input-seq buffer-depth))))
 
 
 (defn- recur-async-channel-to-lazy-seq

@@ -78,3 +78,24 @@
     (parallel/parallel-for idx 1000
                            (aset result-ary idx (inc idx)))
     (is (= (count (distinct (vec result-ary))) 1000))))
+
+
+(deftest buffered-seq
+  (let [realized-count (atom 0)
+        test-seq (->> (parallel/queued-pmap
+                       1
+                       (fn [idx]
+                         (swap! realized-count inc)
+                         idx)
+                       (range 100))
+                      (parallel/buffered-seq 5)
+                      (map identity))]
+    ;;If the pmap thread has launched then this number is 1.
+    ;;If it hasn't yet then this number is 0.  We haven't blocked
+    ;;on it yet so it could be legitimately be either 1 or 0.
+    (is (or (= 0 @realized-count)
+            (= 1 @realized-count)))
+    (is (= 0 (first test-seq)))
+    (is (= 6 @realized-count))
+    (is (= 1 (second test-seq)))
+    (is (= 7 @realized-count))))
