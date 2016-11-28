@@ -134,69 +134,71 @@ that needs to happen exactly once per thread."
                       :or {queue-depth (get-default-parallelism)
                            num-threads (get-default-parallelism)
                            thread-init-fn nil}}]
-  ;;Num threads cannot be more than queue-depth in order to ensure
-  ;;the invariant that there are never more than queue-depth items in flight.
-  (let [num-threads (long (min num-threads queue-depth))
-        primary-sequence (partition (count map-args) (apply interleave map-args))
-        ;;Number of write channels is equal to the queue depth.
-        write-channels (vec (repeatedly queue-depth async/chan))
-        ;;infinite sequence of repeated queue-depth channels.  This sequence provides
-        ;;our ordering mechanism and our backpressure mechanism
-        write-chan-sequence (->> write-channels
-                                 (repeat)
-                                 (mapcat identity))
-        read-sequence (->> (interleave primary-sequence
-                                       write-chan-sequence)
-                           (partition 2))
-        waiting-write-channels (atom #{})
-        pool (ForkJoinPool. (long num-threads))
-        next-item-fn (create-next-item-fn read-sequence)
-        process-count (atom 0)
-        active (atom true)
-        shutdown-fn (fn []
-                      (reset! active false)
-                      ;;Using mapv to force side effects
-                      (mapv async/close! write-channels)
-                      (.shutdown pool))
+  (if (= 0 (max queue-depth 0))
+    (apply map map-fn map-args)
+    ;;Num threads cannot be more than queue-depth in order to ensure
+    ;;the invariant that there are never more than queue-depth items in flight.
+    (let [num-threads (long (min num-threads queue-depth))
+          primary-sequence (partition (count map-args) (apply interleave map-args))
+          ;;Number of write channels is equal to the queue depth.
+          write-channels (vec (repeatedly queue-depth async/chan))
+          ;;infinite sequence of repeated queue-depth channels.  This sequence provides
+          ;;our ordering mechanism and our backpressure mechanism
+          write-chan-sequence (->> write-channels
+                                   (repeat)
+                                   (mapcat identity))
+          read-sequence (->> (interleave primary-sequence
+                                         write-chan-sequence)
+                             (partition 2))
+          waiting-write-channels (atom #{})
+          pool (ForkJoinPool. (long num-threads))
+          next-item-fn (create-next-item-fn read-sequence)
+          process-count (atom 0)
+          active (atom true)
+          shutdown-fn (fn []
+                        (reset! active false)
+                        ;;Using mapv to force side effects
+                        (mapv async/close! write-channels)
+                        (.shutdown pool))
 
-        process-fn (fn []
-                     (swap! process-count inc)
-                     (when thread-init-fn
-                       (thread-init-fn))
+          process-fn (fn []
+                       (swap! process-count inc)
+                       (when thread-init-fn
+                         (thread-init-fn))
 
-                     ;;The theory here is that as long as there are <= threads
-                     ;;than write-channels we can't get more items in flight than
-                     ;;queue depth at this level.
-                     (loop [next-read-item (next-item-fn)]
-                       (when (and next-read-item @active)
-                         (let [[next-item write-channel] next-read-item]
-                           (try
-                             (async/>!! write-channel (apply map-fn next-item))
-                             (catch Throwable e
-                               (async/>!! write-channel
-                                          {:queued-sequence-error e})
-                               (shutdown-fn)))
-                           (recur (next-item-fn)))))
+                       ;;The theory here is that as long as there are <= threads
+                       ;;than write-channels we can't get more items in flight than
+                       ;;queue depth at this level.
+                       (loop [next-read-item (next-item-fn)]
+                         (when (and next-read-item @active)
+                           (let [[next-item write-channel] next-read-item]
+                             (try
+                               (async/>!! write-channel (apply map-fn next-item))
+                               (catch Throwable e
+                                 (async/>!! write-channel
+                                            {:queued-sequence-error e})
+                                 (shutdown-fn)))
+                             (recur (next-item-fn)))))
 
-                     (when (= (swap! process-count dec) 0)
-                       (shutdown-fn)))]
-    ;;Start up all processing threads
-    (doseq [thread-idx (range num-threads)]
-      (.submit pool ^Callable process-fn))
+                       (when (= (swap! process-count dec) 0)
+                         (shutdown-fn)))]
+      ;;Start up all processing threads
+      (doseq [thread-idx (range num-threads)]
+        (.submit pool ^Callable process-fn))
 
-    ;;convert sequence into output of map-fn while at the same time
-    ;;notifying on dereference that we can read the next item in
-    ;;from the window if we are using ordering.
-    {:sequence (->> (channel-seq->item-seq write-chan-sequence)
-                    ;;Catch errors here and rethrow on main thread
-                    (map (fn [item]
-                           (when-let [^Throwable nested-exception
-                                      (:queued-sequence-error item)]
-                             (throw (RuntimeException.
-                                     "Error during queued sequence execution:"
-                                     nested-exception)))
-                           item)))
-     :shutdown-fn shutdown-fn}))
+      ;;convert sequence into output of map-fn while at the same time
+      ;;notifying on dereference that we can read the next item in
+      ;;from the window if we are using ordering.
+      {:sequence (->> (channel-seq->item-seq write-chan-sequence)
+                      ;;Catch errors here and rethrow on main thread
+                      (map (fn [item]
+                             (when-let [^Throwable nested-exception
+                                        (:queued-sequence-error item)]
+                               (throw (RuntimeException.
+                                       "Error during queued sequence execution:"
+                                       nested-exception)))
+                             item)))
+       :shutdown-fn shutdown-fn})))
 
 
 (defn queued-pmap
@@ -213,7 +215,7 @@ queue-depth + 1.
 
 A queue depth of zero indicates to use a normal map operation."
   [queue-depth map-fn & args]
-  (if (= 0 queue-depth)
+  (if (= 0 (max queue-depth 0))
     (apply map map-fn args)
     (:sequence (queued-sequence map-fn args
                                 :queue-depth queue-depth))))
