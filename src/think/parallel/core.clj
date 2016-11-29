@@ -1,6 +1,6 @@
 (ns think.parallel.core
   (:require [clojure.core.async :as async])
-  (:import [java.util.concurrent ForkJoinPool Callable Future]
+  (:import [java.util.concurrent ForkJoinPool Callable Future ExecutorService]
            [java.util ArrayDeque PriorityQueue Comparator]))
 
 
@@ -114,26 +114,33 @@ item read from a given channel."
 
 (defn queued-sequence
   "Returns a map containing a shutdown function *and* a sequence
-derived from the queue operation:
-{:shutdown-fn
- :sequence}
-Shutting down the sequence is necessary in the case of an infinite
-so you can free the resources associated with this queued sequence.
-When using ordering it does not make any sense to have
-num-threads > queue-depth because we cannot read more than queue-depth ahead
-into the src seq.
+  derived from the queue operation:
+  {:shutdown-fn
+  :sequence}
+  Shutting down the sequence is necessary in the case of an infinite
+  so you can free the resources associated with this queued sequence.
+  When using ordering it does not make any sense to have
+  num-threads > queue-depth because we cannot read more than queue-depth ahead
+  into the src seq.
 
-There is an additional invariant that there are never more
-that queue-depth items in flight.  This invariant means there has to be blocking
-on the read-head of the input sequence.
+  There is an additional invariant that there are never more
+  that queue-depth items in flight.  This invariant means there has to be blocking
+  on the read-head of the input sequence.
 
-**When callers dereference the output sequence,
-however, there may at that instant be queue-depth + 1 items in flight.  Callers
-need to be aware of this.**
+  **When callers dereference the output sequence,
+  however, there may at that instant be queue-depth + 1 items in flight.  Callers
+  need to be aware of this.**
 
-A thread initialization function is available in case you have an operation
-that needs to happen exactly once per thread."
-  [map-fn map-args & {:keys [queue-depth num-threads thread-init-fn]
+  A thread initialization function is available in case you have an operation
+  that needs to happen exactly once per thread.
+
+  Clients can dictate which executor service to use for the thread pool.  If a service
+  is not specified this function internally will allocate a forkjoinpool with num-threads
+  parallelism.
+
+  If any errors leak into the processing thread the entire systems is immediately halted
+  and the error propagated to the calling thread."
+  [map-fn map-args & {:keys [queue-depth num-threads thread-init-fn executor-service]
                       :or {queue-depth (get-default-parallelism)
                            num-threads (get-default-parallelism)
                            thread-init-fn nil}}]
@@ -143,56 +150,65 @@ that needs to happen exactly once per thread."
     ;;the invariant that there are never more than queue-depth items in flight.
     (let [num-threads (long (min num-threads queue-depth))
           primary-sequence (partition (count map-args) (apply interleave map-args))
-          ;;Number of write channels is equal to the queue depth.
-          write-channels (vec (repeatedly queue-depth async/chan))
+          read-channels (vec (repeatedly queue-depth #(async/chan 1)))
           ;;infinite sequence of repeated queue-depth channels.  This sequence provides
-          ;;our ordering mechanism and our backpressure mechanism
-          write-chan-sequence (->> write-channels
-                                   (repeat)
-                                   (mapcat identity))
+          ;;the read backpressure mechanism in that every time we realize an output member
+          ;;of the sequence we write to a read channel.  This read channel is read queue-depth ahead
+          ;;when reading from input on the pool thread thus providing a blocking mechanism.
+          read-chan-output-sequence (->> read-channels
+                                         (repeat)
+                                         (mapcat identity))
+
+          ;;The channels start queue-depth
+          read-chan-sequence (concat (repeat queue-depth :no-channel)
+                                     read-chan-output-sequence)
+
+          ;;Add in indexes to allow an ordering mechanism
           read-sequence (->> (interleave primary-sequence
-                                         write-chan-sequence)
-                             (partition 2))
-          waiting-write-channels (atom #{})
-          pool (ForkJoinPool. (long num-threads))
+                                         read-chan-output-sequence
+                                         read-chan-sequence
+                                         (range))
+                             (partition 4)
+                             ;;Read from the read channel to affect blocking
+                             (map (fn [[item output-chan seq-read-chan idx]]
+                                    (when-not (= seq-read-chan :no-channel)
+                                      (async/<!! seq-read-chan))
+                                    [item output-chan idx])))
+
+          queue (async/chan queue-depth)
+          pool (if executor-service
+                 nil
+                 (ForkJoinPool. (long num-threads)))
           next-item-fn (create-next-item-fn read-sequence)
           process-count (atom 0)
           active (atom true)
           shutdown-fn (fn []
                         (reset! active false)
                         ;;Using mapv to force side effects
-                        (mapv async/close! write-channels)
-                        (.shutdown pool))
-
+                        (mapv async/close! read-channels)
+                        (async/close! queue)
+                        (when pool
+                          (.shutdown pool)))
           process-fn (fn []
                        (swap! process-count inc)
-                       (when thread-init-fn
-                         (thread-init-fn))
-
-                       ;;The theory here is that as long as there are <= threads
-                       ;;than write-channels we can't get more items in flight than
-                       ;;queue depth at this level.
-                       (loop [next-read-item (next-item-fn)]
-                         (when (and next-read-item @active)
-                           (let [[next-item write-channel] next-read-item]
-                             (try
-                               (async/>!! write-channel (apply map-fn next-item))
-                               (catch Throwable e
-                                 (async/>!! write-channel
-                                            {:queued-sequence-error e})
-                                 (shutdown-fn)))
-                             (recur (next-item-fn)))))
-
+                       (try
+                         (when thread-init-fn
+                           (thread-init-fn))
+                         (loop [next-read-item (next-item-fn)]
+                           (when (and next-read-item @active)
+                             (let [[next-item output-chan idx] next-read-item]
+                               (async/>!! queue [idx (apply map-fn next-item) output-chan])
+                               (recur (next-item-fn)))))
+                         (catch Throwable e
+                           (async/>!! queue {:queued-sequence-error e})
+                           (shutdown-fn)))
                        (when (= (swap! process-count dec) 0)
-                         (shutdown-fn)))]
-      ;;Start up all processing threads
-      (doseq [thread-idx (range num-threads)]
-        (.submit pool ^Callable process-fn))
-
+                         (shutdown-fn)))
+          ^ExecutorService submit-service (if pool pool executor-service)]
       ;;convert sequence into output of map-fn while at the same time
       ;;notifying on dereference that we can read the next item in
       ;;from the window if we are using ordering.
-      {:sequence (->> (channel-seq->item-seq write-chan-sequence)
+      {:sequence (->> (async-channel-to-lazy-seq queue)
                       ;;Catch errors here and rethrow on main thread
                       (map (fn [item]
                              (when-let [^Throwable nested-exception
@@ -200,7 +216,13 @@ that needs to happen exactly once per thread."
                                (throw (RuntimeException.
                                        "Error during queued sequence execution:"
                                        nested-exception)))
-                             item)))
+                             item))
+                      (order-indexed-sequence first)
+                      (map (fn [[idx output-item output-chan]]
+                             ;;Free up the next input item to be read by the thread pool.
+                             (async/>!! output-chan 1)
+                             output-item)))
+       :futures (mapv #(.submit submit-service %) (repeat num-threads process-fn))
        :shutdown-fn shutdown-fn})))
 
 
