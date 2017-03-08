@@ -222,7 +222,7 @@ item read from a given channel."
                              ;;Free up the next input item to be read by the thread pool.
                              (async/>!! output-chan 1)
                              output-item)))
-       :futures (mapv #(.submit submit-service %) (repeat num-threads process-fn))
+       :futures (mapv #(.submit submit-service ^Callable %) (repeat num-threads process-fn))
        :shutdown-fn shutdown-fn})))
 
 
