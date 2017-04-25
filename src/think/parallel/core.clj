@@ -112,6 +112,14 @@ item read from a given channel."
   (lazy-seq (recur-channel-seq->item-seq channel-seq)))
 
 
+(defn- wrap-thread-bindings
+  [f]
+  (let [frame (clojure.lang.Var/cloneThreadBindingFrame)]
+    (fn [& args]
+      (clojure.lang.Var/resetThreadBindingFrame frame)
+      (apply f args))))
+
+
 (defn queued-sequence
   "Returns a map containing a shutdown function *and* a sequence
   derived from the queue operation:
@@ -189,6 +197,7 @@ item read from a given channel."
                         (async/close! queue)
                         (when pool
                           (.shutdown pool)))
+          map-fn (wrap-thread-bindings map-fn)
           process-fn (fn []
                        (swap! process-count inc)
                        (try

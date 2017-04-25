@@ -106,3 +106,16 @@
     (is (or= @realized-count 5 6))
     (is (= 1 (second test-seq)))
     (is (or= @realized-count 6 7))))
+
+
+(def ^:dynamic *increment-count* 0)
+
+(deftest thread-bindings
+  (with-bindings {#'*increment-count* 1}
+    (let [increment-atom (atom 0)]
+      (->> (range 100)
+           (parallel/queued-pmap 10 (fn [_]
+                                      (swap! increment-atom (fn [val]
+                                                              (+ val *increment-count*)))))
+           dorun)
+      (is (= @increment-atom 100)))))
