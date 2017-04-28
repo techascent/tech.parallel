@@ -119,3 +119,24 @@
                                                               (+ val *increment-count*)))))
            dorun)
       (is (= @increment-atom 100)))))
+
+
+(deftest precise-queue-behavior
+  (let [access-count (atom 0)
+        in-flight-max 2
+        check-in-flight-max (fn []
+                              (when (> @access-count in-flight-max)
+                                (throw (ex-info "In flight max constraint violation"
+                                                {:max-val @access-count}))))]
+    (->> (range 1000)
+         (parallel/queued-pmap (- in-flight-max 1)
+                               (fn [_]
+                                 (swap! access-count inc)
+                                 (Thread/sleep 10)
+                                 (check-in-flight-max)))
+         (map (fn [_]
+                (Thread/sleep 10)
+                (check-in-flight-max)
+                (swap! access-count dec)))
+         vec)
+    (is (= @access-count 0))))
