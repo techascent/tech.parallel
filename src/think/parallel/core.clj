@@ -146,7 +146,7 @@ item read from a given channel."
   is not specified this function internally will allocate a forkjoinpool with num-threads
   parallelism.
 
-  If any errors leak into the processing thread the entire systems is immediately halted
+  If any errors leak into the processing thread the entire system is immediately halted
   and the error propagated to the calling thread."
   [map-fn map-args & {:keys [queue-depth num-threads thread-init-fn executor-service]
                       :or {queue-depth (get-default-parallelism)
@@ -188,7 +188,6 @@ item read from a given channel."
                  nil
                  (ForkJoinPool. (long num-threads)))
           next-item-fn (create-next-item-fn read-sequence)
-          process-count (atom 0)
           active (atom true)
           shutdown-fn (fn []
                         (reset! active false)
@@ -198,8 +197,15 @@ item read from a given channel."
                         (when pool
                           (.shutdown pool)))
           map-fn (wrap-thread-bindings map-fn)
+          ;;There is a race condition if the sequence is very short because one of the threads
+          ;;could trigger shutdown before this function exits.  To avoid that condition, *this*
+          ;;function increments the process count and has the decrement-and-shutdown logic
+          ;;also.
+          process-count (atom (+ num-threads 1))
+          dec-process-count (fn []
+                              (when (= (swap! process-count dec) 0)
+                                (shutdown-fn)))
           process-fn (fn []
-                       (swap! process-count inc)
                        (try
                          (when thread-init-fn
                            (thread-init-fn))
@@ -211,28 +217,30 @@ item read from a given channel."
                          (catch Throwable e
                            (async/>!! queue {:queued-sequence-error e})
                            (shutdown-fn)))
-                       (when (= (swap! process-count dec) 0)
-                         (shutdown-fn)))
+                       (dec-process-count))
           ^ExecutorService submit-service (if pool pool executor-service)]
-      ;;convert sequence into output of map-fn while at the same time
-      ;;notifying on dereference that we can read the next item in
-      ;;from the window if we are using ordering.
-      {:sequence (->> (async-channel-to-lazy-seq queue)
-                      ;;Catch errors here and rethrow on main thread
-                      (map (fn [item]
-                             (when-let [^Throwable nested-exception
-                                        (:queued-sequence-error item)]
-                               (throw (RuntimeException.
-                                       "Error during queued sequence execution:"
-                                       nested-exception)))
-                             item))
-                      (order-indexed-sequence first)
-                      (map (fn [[idx output-item output-chan]]
-                             ;;Free up the next input item to be read by the thread pool.
-                             (async/>!! output-chan 1)
-                             output-item)))
-       :futures (mapv #(.submit submit-service ^Callable %) (repeat num-threads process-fn))
-       :shutdown-fn shutdown-fn})))
+      (try
+        ;;convert sequence into output of map-fn while at the same time
+        ;;notifying on dereference that we can read the next item in
+        ;;from the window if we are using ordering.
+        {:sequence (->> (async-channel-to-lazy-seq queue)
+                        ;;Catch errors here and rethrow on main thread
+                        (map (fn [item]
+                               (when-let [^Throwable nested-exception
+                                          (:queued-sequence-error item)]
+                                 (throw (RuntimeException.
+                                         "Error during queued sequence execution:"
+                                         nested-exception)))
+                               item))
+                        (order-indexed-sequence first)
+                        (map (fn [[idx output-item output-chan]]
+                               ;;Free up the next input item to be read by the thread pool.
+                               (async/>!! output-chan 1)
+                               output-item)))
+         :futures (mapv #(.submit submit-service ^Callable %) (repeat num-threads process-fn))
+         :shutdown-fn shutdown-fn}
+        (finally
+          (dec-process-count))))))
 
 
 (defn queued-pmap

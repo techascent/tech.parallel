@@ -140,3 +140,15 @@
                 (swap! access-count dec)))
          vec)
     (is (= @access-count 0))))
+
+
+(deftest short-sequence-clean-shutdown
+  ;;A very short sequence can result in an error if there are more threads than potential processors and
+  ;;the launch sequence doesn't finish before one of the threads shuts down the sequence.
+  (let [error
+        (try
+          (dotimes [iter 10]
+            (parallel/queued-pmap 100 identity [1 2 3])
+            nil)
+          (catch Throwable e e))]
+    (is (nil? error))))
