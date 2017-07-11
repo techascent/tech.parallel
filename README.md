@@ -2,7 +2,7 @@
 
 
 ```clojure
-[thinktopic/think.parallel "0.3.6"]
+[thinktopic/think.parallel "0.3.7"]
 ```
 
 Parallelization and threading primitives.  Functions for:
