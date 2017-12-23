@@ -1,9 +1,9 @@
 # think.parallel ![TravisCI](https://travis-ci.org/thinktopic/think.parallel.svg?branch=master)
 
 
-```clojure
-[thinktopic/think.parallel "0.3.7"]
-```
+
+## Usage
+[![Clojars Project](https://clojars.org/thinktopic/think.parallel/latest-version.svg)](https://clojars.org/thinktopic/think.parallel)
 
 Parallelization and threading primitives.  Functions for:
 
