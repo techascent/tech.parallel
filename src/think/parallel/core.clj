@@ -193,9 +193,7 @@ item read from a given channel."
                         (reset! active false)
                         ;;Using mapv to force side effects
                         (mapv async/close! read-channels)
-                        (async/close! queue)
-                        (when pool
-                          (.shutdown pool)))
+                        (async/close! queue))
           map-fn (wrap-thread-bindings map-fn)
           ;;There is a race condition if the sequence is very short because one of the threads
           ;;could trigger shutdown before this function exits.  To avoid that condition, *this*
@@ -204,7 +202,9 @@ item read from a given channel."
           process-count (atom (+ num-threads 1))
           dec-process-count (fn []
                               (when (= (swap! process-count dec) 0)
-                                (shutdown-fn)))
+                                (shutdown-fn)
+                                (when pool
+                                  (.shutdown pool))))
           process-fn (fn []
                        (try
                          (when thread-init-fn

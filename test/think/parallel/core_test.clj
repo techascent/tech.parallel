@@ -148,7 +148,24 @@
   (let [error
         (try
           (dotimes [iter 10]
-            (parallel/queued-pmap 100 identity [1 2 3])
+            (->> (parallel/queued-pmap 100 identity [1 2 3])
+                 doall)
             nil)
           (catch Throwable e e))]
     (is (nil? error))))
+
+
+(deftest short-sequence-error-clean-shutdown
+  ;;A very short sequence can result in an error if there are more threads than potential processors and
+  ;;the launch sequence doesn't finish before one of the threads causes an exception.
+
+  (dotimes [iter 20]
+    (try
+      (->> (parallel/queued-pmap 100 (fn [& args]
+                                       (throw (ex-info "Sequence failure" {})))
+                                 [1 2 3])
+          doall)
+      (throw (ex-info "should not make it here"))
+      (catch Throwable e
+        (is (not (instance? java.util.concurrent.RejectedExecutionException e)))
+        nil))))
