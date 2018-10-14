@@ -1,6 +1,9 @@
 # tech.parallel
 
 
+[![Clojars Project](https://img.shields.io/clojars/v/techascent/tech.parallel.svg)](https://clojars.org/techascent/tech.parallel)
+
+
 Parallelization and threading primitives.  Functions for:
 
 
