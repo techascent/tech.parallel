@@ -1,6 +1,6 @@
-(ns think.parallel.core-test
+(ns tech.parallel-test
   (:require [clojure.test :refer :all]
-            [think.parallel.core :as parallel]))
+            [tech.parallel :as parallel]))
 
 
 (deftest order-indexed-sequence

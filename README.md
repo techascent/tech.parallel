@@ -1,9 +1,5 @@
-# think.parallel ![TravisCI](https://travis-ci.org/thinktopic/think.parallel.svg?branch=master)
+# tech.parallel
 
-
-
-## Usage
-[![Clojars Project](https://clojars.org/thinktopic/think.parallel/latest-version.svg)](https://clojars.org/thinktopic/think.parallel)
 
 Parallelization and threading primitives.  Functions for:
 
@@ -19,8 +15,7 @@ Parallelization and threading primitives.  Functions for:
 
 Please see:
 
-[core_test.clj](test/think/parallel/core_test.clj)
-
+[core_test.clj](test/tech/parallel_test.clj)
 
 
 ## License

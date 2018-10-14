@@ -1,4 +1,4 @@
-(ns think.parallel.core
+(ns tech.parallel
   (:require [clojure.core.async :as async])
   (:import [java.util.concurrent ForkJoinPool Callable Future ExecutorService]
            [java.util ArrayDeque PriorityQueue Comparator]))
