@@ -169,3 +169,13 @@
       (catch Throwable e
         (is (not (instance? java.util.concurrent.RejectedExecutionException e)))
         nil))))
+
+
+(deftest parallel-memoize
+  (let [test-atom (atom 0)]
+    (dotimes [iter 100]
+      (let [inc-fn (parallel/memoize #(swap! test-atom inc))]
+        (->> (range 20)
+             (pmap (fn [ignored]
+                     (inc-fn))))))
+    (is (= @test-atom 100))))

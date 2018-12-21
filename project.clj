@@ -1,7 +1,7 @@
-(defproject techascent/tech.parallel "1.0-SNAPSHOT"
+(defproject techascent/tech.parallel "1.1"
   :description "Library for parallelization primitives"
   :url "http://github.com/tech-ascent/tech.parallel"
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.9.0"]
-                 [org.clojure/core.async "0.3.465"]])
+                 [org.clojure/core.async "0.4.490"]])

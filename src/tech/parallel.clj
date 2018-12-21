@@ -1,5 +1,6 @@
 (ns tech.parallel
   (:require [clojure.core.async :as async])
+  (:refer-clojure :exclude [memoize])
   (:import [java.util.concurrent ForkJoinPool Callable Future ExecutorService]
            [java.util ArrayDeque PriorityQueue Comparator]))
 
@@ -310,3 +311,24 @@ Idx is named idx-var and body will be called for each idx in parallel."
                               (when (< ~idx-var group-end#)
                                 ~@body
                                 (recur (inc ~idx-var))))))))
+
+
+(defn memoize
+  [memo-fn]
+  (let [memo-data (atom {})]
+    (fn [& args]
+      (locking memo-data
+        (let [retval
+              (get
+               (swap! memo-data (fn [arg-val-map]
+                                  (if-let [existing (get arg-val-map args)]
+                                    arg-val-map
+                                    (assoc arg-val-map args
+                                           (try
+                                             (apply memo-fn args)
+                                             (catch Throwable e
+                                               {::thrown e}))))))
+               args)]
+          (if (::thrown retval)
+            (throw retval)
+            retval))))))
