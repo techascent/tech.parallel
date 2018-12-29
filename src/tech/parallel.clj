@@ -301,8 +301,8 @@ Indexes will be split as evenly as possible among the invocations."
 
 
 (defmacro parallel-for
-  "Like clojure.core.matrix.macros c-for except this expects index that run from 0 -> num-iters.
-Idx is named idx-var and body will be called for each idx in parallel."
+  "Like clojure.core.matrix.macros c-for except this expects index that run from 0 ->
+  num-iters.  Idx is named idx-var and body will be called for each idx in parallel."
   [idx-var num-iters & body]
   `(launch-parallel-for ~num-iters
                         (fn [^long group-start# ^long group-len#]
@@ -318,17 +318,24 @@ Idx is named idx-var and body will be called for each idx in parallel."
   (let [memo-data (atom {})]
     (fn [& args]
       (locking memo-data
-        (let [retval
-              (get
-               (swap! memo-data (fn [arg-val-map]
-                                  (if-let [existing (get arg-val-map args)]
-                                    arg-val-map
-                                    (assoc arg-val-map args
-                                           (try
-                                             (apply memo-fn args)
-                                             (catch Throwable e
-                                               {::thrown e}))))))
-               args)]
-          (if (::thrown retval)
-            (throw retval)
-            retval))))))
+        (get
+         (swap! memo-data (fn [arg-val-map]
+                            (if-let [existing (get arg-val-map args)]
+                              arg-val-map
+                              (assoc arg-val-map args
+                                     (apply memo-fn args)))))
+         args)))))
+
+
+(def
+  ^{:doc
+    "Clojure's require is not threadsafe.  So in order to do dynamic require
+and resolution of target functions we need to wrap it in a threadsafe
+memoizeation of the value.
+Usage:
+(require-resolve 'clojure.core.async/admix)"}
+  require-resolve
+  (memoize
+   (fn [item-symbol]
+     (require (symbol (namespace item-symbol)))
+     (resolve item-symbol))))

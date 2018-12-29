@@ -179,3 +179,12 @@
              (pmap (fn [ignored]
                      (inc-fn))))))
     (is (= @test-atom 100))))
+
+
+(deftest require-resolve
+  (is (not (find-ns 'clojure.inspector)))
+  (is (every? (complement nil?)
+              (->> (range 100)
+                   (pmap (fn [idx]
+                           (parallel/require-resolve 'clojure.inspector/inspect))))))
+  (is (find-ns 'clojure.inspector)))
