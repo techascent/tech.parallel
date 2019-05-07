@@ -264,6 +264,15 @@ A queue depth of zero indicates to use a normal map operation."
                                 :queue-depth queue-depth))))
 
 
+(defmacro serial-for
+  [idx-var num-iters & body]
+  `(let [num-iters# (long ~num-iters)]
+     (loop [~idx-var 0]
+       (when (< ~idx-var num-iters#)
+         (do
+           ~@body)
+         (recur (inc ~idx-var))))))
+
 
 (defn launch-parallel-for
   "Given a function that takes exactly 2 arguments, a start-index and a length,
@@ -304,13 +313,16 @@ Indexes will be split as evenly as possible among the invocations."
   "Like clojure.core.matrix.macros c-for except this expects index that run from 0 ->
   num-iters.  Idx is named idx-var and body will be called for each idx in parallel."
   [idx-var num-iters & body]
-  `(launch-parallel-for ~num-iters
-                        (fn [^long group-start# ^long group-len#]
-                          (let [group-end# (+ group-start# group-len#)]
-                            (loop [~idx-var group-start#]
-                              (when (< ~idx-var group-end#)
-                                ~@body
-                                (recur (inc ~idx-var))))))))
+  `(let [num-iters# (long ~num-iters)]
+     (if (< num-iters# (* 2 (ForkJoinPool/getCommonPoolParallelism)))
+       (serial-for ~idx-var num-iters# ~@body)
+       (launch-parallel-for num-iters#
+                            (fn [^long group-start# ^long group-len#]
+                              (let [group-end# (+ group-start# group-len#)]
+                                (loop [~idx-var group-start#]
+                                  (when (< ~idx-var group-end#)
+                                    ~@body
+                                    (recur (inc ~idx-var))))))))))
 
 
 (defn memoize
