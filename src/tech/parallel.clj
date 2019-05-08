@@ -2,6 +2,7 @@
   (:require [clojure.core.async :as async]
             [tech.parallel.for]
             [tech.parallel.require]
+            [tech.parallel.next-item-fn]
             [tech.parallel.utils :as utils])
   (:import [java.util.concurrent ForkJoinPool Callable Future ExecutorService]
            [java.util ArrayDeque PriorityQueue Comparator])
@@ -50,17 +51,8 @@ is read via async/<!!.  Sequence ends when channel returns nil."
   (lazy-seq (recur-async-channel-to-lazy-seq to-chan)))
 
 
-(defn create-next-item-fn
-  "Given a sequence return a function that each time called (with no arguments)
-returns the next item in the sequence in a mutable fashion."
-  [item-sequence]
-  (let [primary-sequence (atom item-sequence)]
-    (fn []
-      (loop [sequence @primary-sequence]
-        (when-let [next-item (first sequence)]
-          (if-not (compare-and-set! primary-sequence sequence (rest sequence))
-            (recur @primary-sequence)
-            next-item))))))
+(utils/export-symbols tech.parallel.next-item-fn
+                      create-next-item-fn)
 
 
 (defn- recur-order-indexed-sequence
