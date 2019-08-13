@@ -4,7 +4,8 @@
             [tech.parallel.require]
             [tech.parallel.next-item-fn]
             [tech.parallel.utils :as utils])
-  (:import [java.util.concurrent ForkJoinPool Callable Future ExecutorService]
+  (:import [java.util.concurrent ForkJoinPool Callable Future ExecutorService
+            ForkJoinPool$ForkJoinWorkerThreadFactory]
            [java.util ArrayDeque PriorityQueue Comparator])
   (:refer-clojure :exclude [memoize]))
 
@@ -257,6 +258,50 @@ A queue depth of zero indicates to use a normal map operation."
     (apply map map-fn args)
     (:sequence (queued-sequence map-fn args
                                 :queue-depth queue-depth))))
+
+
+(defn create-thread-pool
+  "Create a new thread pool.  This is often done as a variable defined
+  in a namespace and then used in several thread-pool-pmap function calls.
+  The advantage is that multiple pmap sequences can use the same underlying
+  thread pool.
+
+  num-threads - Number of threads to create in the thread pool.
+  thread-name-fn - Function from pool-index->string thread name"
+  [num-threads thread-name-fn]
+  (ForkJoinPool.
+   (int num-threads)
+   ;;We override the worker factory in order to give our threads good
+   ;;names.
+   (reify
+     ForkJoinPool$ForkJoinWorkerThreadFactory
+     (newThread [this pool]
+       (let [retval
+             (-> (ForkJoinPool/defaultForkJoinWorkerThreadFactory)
+                 (.newThread pool))]
+         (.setName retval (thread-name-fn (.getPoolIndex retval)))
+         retval)))
+   nil ;;No special exception handling
+   false ;;Async tasks are processed in LIFO
+   ))
+
+(defn thread-pool-num-threads
+  ^long [^ForkJoinPool thread-pool]
+  (long (.getParallelism thread-pool)))
+
+
+(defn thread-pool-pmap
+  "Pmap functionality with preexisting thread pool.  Convenience wrapper
+  around using custom thread pools (ExecutorService).
+  thread-pool - thread pool to use.
+  queue-depth - Queue-depth - how far ahead to allow threads to get.
+  map-fn - map fn
+  args - sequences"
+  [thread-pool queue-depth map-fn & sequences]
+  (:sequence (queued-sequence
+              map-fn sequences
+              :queue-depth queue-depth
+              :executor-service thread-pool)))
 
 
 (utils/export-symbols tech.parallel.for
