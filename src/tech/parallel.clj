@@ -230,8 +230,9 @@ item read from a given channel."
                                          nested-exception)))
                                item))
                         (order-indexed-sequence first)
-                        (map (fn [[idx output-item output-chan]]
-                               ;;Free up the next input item to be read by the thread pool.
+                        (map (fn [[_ output-item output-chan]]
+                               ;;Free up the next input item to be read by the thread
+                               ;;pool.
                                (async/>!! output-chan 1)
                                output-item)))
          :futures (mapv #(.submit submit-service ^Callable %) (repeat num-threads process-fn))

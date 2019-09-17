@@ -10,7 +10,7 @@
       (locking memo-data
         (get
          (swap! memo-data (fn [arg-val-map]
-                            (if-let [existing (get arg-val-map args)]
+                            (if (get arg-val-map args)
                               arg-val-map
                               (assoc arg-val-map args
                                      (apply memo-fn args)))))
