@@ -66,7 +66,7 @@ call this function exactly N times where N is ForkJoinPool/getCommonPoolParallel
                                     ~@body
                                     (recur (inc ~idx-var))))))
                             ;;throw away result
-                            (constantly nil)))))
+                            dorun))))
 
 
 (defn indexed-pmap
