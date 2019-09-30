@@ -3,7 +3,8 @@
             [tech.parallel.for]
             [tech.parallel.require]
             [tech.parallel.next-item-fn]
-            [tech.parallel.utils :as utils])
+            [tech.parallel.utils :as utils]
+            [clojure.tools.logging :as log])
   (:import [java.util.concurrent ForkJoinPool Callable Future ExecutorService
             ForkJoinPool$ForkJoinWorkerThreadFactory]
            [java.util ArrayDeque PriorityQueue Comparator])
@@ -269,7 +270,7 @@ A queue depth of zero indicates to use a normal map operation."
 
   num-threads - Number of threads to create in the thread pool.
   thread-name-fn - Function from pool-index->string thread name"
-  [num-threads thread-name-fn]
+  ^ForkJoinPool [num-threads thread-name-fn]
   (ForkJoinPool.
    (int num-threads)
    ;;We override the worker factory in order to give our threads good
@@ -303,6 +304,30 @@ A queue depth of zero indicates to use a normal map operation."
               map-fn sequences
               :queue-depth queue-depth
               :executor-service thread-pool)))
+
+
+(defn psink!
+  "Terminate a sequence with a side effecting function using n-threads named
+  thread-name-{idx}.  !!Items are satisifed in a non-order-dependent fashion!!
+  returns :ok immediately and begins execution of items."
+  ([doseq-fn! item-seq {:keys [n-threads thread-name]
+                        :or {n-threads 16
+                             thread-name "psink-thread"}}]
+   (let [thread-pool (create-thread-pool n-threads #(format "%s-%d" thread-name %))
+         next-item-fn (create-next-item-fn item-seq)
+         process-fn (fn []
+                      (try
+                        (loop [next-read-item (next-item-fn)]
+                          (when next-read-item
+                            (doseq-fn! next-read-item)
+                            (recur (next-item-fn))))
+                        (catch Throwable e
+                          (log/errorf e "Error during %s" thread-name))))]
+     (doseq [_idx (range n-threads)]
+       (.submit thread-pool ^Callable process-fn))
+     :ok))
+  ([doseq-fn! item-seq]
+   (psink! doseq-fn! item-seq {})))
 
 
 (utils/export-symbols tech.parallel.for

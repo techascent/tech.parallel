@@ -1,6 +1,7 @@
 (ns tech.parallel-test
   (:require [clojure.test :refer :all]
-            [tech.parallel :as parallel]))
+            [tech.parallel :as parallel]
+            [clojure.tools.logging :as log]))
 
 
 (deftest order-indexed-sequence
@@ -156,8 +157,9 @@
 
 
 (deftest short-sequence-error-clean-shutdown
-  ;;A very short sequence can result in an error if there are more threads than potential processors and
-  ;;the launch sequence doesn't finish before one of the threads causes an exception.
+  ;;A very short sequence can result in an error if there are more threads than
+  ;;potential processors and the launch sequence doesn't finish before one of the
+  ;;threads causes an exception.
 
   (dotimes [iter 20]
     (try
@@ -169,6 +171,18 @@
       (catch Throwable e
         (is (not (instance? java.util.concurrent.RejectedExecutionException e)))
         nil))))
+
+
+(deftest pskink-test
+  (log/info "Logged exception expected!!")
+  (let [test-atom (atom 0)]
+    (parallel/psink!
+     #(if (= 5 %)
+        (throw (ex-info "hey" {}))
+        (swap! test-atom inc))
+     (range 10))
+    (Thread/sleep 100)
+    (is (= 9 @test-atom))))
 
 
 (deftest parallel-memoize
