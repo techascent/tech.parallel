@@ -179,10 +179,11 @@
     (parallel/psink!
      #(if (= 5 %)
         (throw (ex-info "hey" {}))
-        (swap! test-atom inc))
-     (range 10))
-    (Thread/sleep 100)
-    (is (= 9 @test-atom))))
+        (do
+          (swap! test-atom inc)
+          (Thread/sleep (rand-int 200))))
+     (range 100))
+    (is (= 99 @test-atom))))
 
 
 (deftest parallel-memoize

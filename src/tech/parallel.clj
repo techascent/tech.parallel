@@ -309,8 +309,11 @@ A queue depth of zero indicates to use a normal map operation."
 (defn psink!
   "Terminate a sequence with a side effecting function using n-threads named
   thread-name-{idx}.  !!Items are satisifed in a non-order-dependent fashion!!
-  returns :ok immediately and begins execution of items."
-  ([doseq-fn! item-seq {:keys [n-threads thread-name]
+  Blocks until execution of the items is complete.
+  :n-threads - num thread to use.
+  :thread-name - thread name prefix to use.  Is appended with '-{thread-idx}'"
+  ([doseq-fn! item-seq {:keys [n-threads
+                               thread-name]
                         :or {n-threads 16
                              thread-name "psink-thread"}}]
    (let [thread-pool (create-thread-pool n-threads #(format "%s-%d" thread-name %))
@@ -319,12 +322,19 @@ A queue depth of zero indicates to use a normal map operation."
                       (try
                         (loop [next-read-item (next-item-fn)]
                           (when next-read-item
-                            (doseq-fn! next-read-item)
+                            (try
+                              (doseq-fn! next-read-item)
+                              (catch Throwable e
+                                (log/errorf e "Error processing %s" thread-name)))
                             (recur (next-item-fn))))
                         (catch Throwable e
-                          (log/errorf e "Error during %s" thread-name))))]
-     (doseq [_idx (range n-threads)]
-       (.submit thread-pool ^Callable process-fn))
+                          (log/errorf e "Error reading %s" thread-name))))]
+     (->> (repeat n-threads process-fn)
+          ;;Launch the threads in one distinct step
+          (mapv #(.submit thread-pool ^Callable %))
+          ;;complete the tasks in another distinct step
+          (mapv deref))
+     (.shutdown thread-pool)
      :ok))
   ([doseq-fn! item-seq]
    (psink! doseq-fn! item-seq {})))
