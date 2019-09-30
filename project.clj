@@ -1,4 +1,4 @@
-(defproject techascent/tech.parallel "1.11"
+(defproject techascent/tech.parallel "1.12-SNAPSHOT"
   :description "Library for parallelization primitives"
   :url "http://github.com/tech-ascent/tech.parallel"
   :license {:name "Eclipse Public License"
