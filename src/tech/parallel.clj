@@ -1,6 +1,6 @@
 (ns tech.parallel
   (:require [clojure.core.async :as async]
-            [tech.parallel.for]
+            [tech.parallel.for :as pfor]
             [tech.parallel.require]
             [tech.parallel.next-item-fn]
             [tech.parallel.utils :as utils]
@@ -341,9 +341,17 @@ A queue depth of zero indicates to use a normal map operation."
 
 
 (utils/export-symbols tech.parallel.for
-                      serial-for
-                      launch-parallel-for
-                      parallel-for)
+                      launch-parallel-for)
+
+(defmacro parallel-for
+  "Run a side effecting operator over a contiguous set of indexes"
+  [idx-var num-iters & body]
+  `(pfor/parallel-for ~idx-var ~num-iters ~@body))
+
+(defmacro serial-for
+  "Run a side effecting operator over a contiguous set of indexes"
+  [idx-var num-iters & body]
+  `(pfor/serial-for ~idx-var ~num-iters ~@body))
 
 
 (utils/export-symbols tech.parallel.require
