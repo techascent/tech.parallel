@@ -292,7 +292,7 @@ A queue depth of zero indicates to use a normal map operation."
   (long (.getParallelism thread-pool)))
 
 
-(defn thread-pool-pmap
+(defn thread-pool-queued-pmap
   "Pmap functionality with preexisting thread pool.  Convenience wrapper
   around using custom thread pools (ExecutorService).
   thread-pool - thread pool to use.
@@ -304,6 +304,20 @@ A queue depth of zero indicates to use a normal map operation."
               map-fn sequences
               :queue-depth queue-depth
               :executor-service thread-pool)))
+
+
+(defn thread-pool-pmap
+  "Given a thread pool, do the simplest possible pmap operation over the pool.
+  This consumes the source sequence greedily and returns a lazy sequence of the
+  result."
+  [^ForkJoinPool thread-pool map-fn & args]
+  (let [map-fn (wrap-thread-bindings map-fn)]
+    (->> (apply map vector args)
+         (mapv (fn [argvec]
+                 (.submit thread-pool ^Callable
+                          (fn []
+                            (apply map-fn argvec)))))
+         (map deref))))
 
 
 (defn psink!
