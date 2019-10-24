@@ -270,22 +270,28 @@ A queue depth of zero indicates to use a normal map operation."
 
   num-threads - Number of threads to create in the thread pool.
   thread-name-fn - Function from pool-index->string thread name"
-  ^ForkJoinPool [num-threads thread-name-fn]
-  (ForkJoinPool.
-   (int num-threads)
-   ;;We override the worker factory in order to give our threads good
-   ;;names.
-   (reify
-     ForkJoinPool$ForkJoinWorkerThreadFactory
-     (newThread [this pool]
-       (let [retval
-             (-> (ForkJoinPool/defaultForkJoinWorkerThreadFactory)
-                 (.newThread pool))]
-         (.setName retval (thread-name-fn (.getPoolIndex retval)))
-         retval)))
-   nil ;;No special exception handling
-   false ;;Async tasks are processed in LIFO
-   ))
+  (^ForkJoinPool [num-threads thread-name-fn]
+   (ForkJoinPool.
+    (int num-threads)
+    ;;We override the worker factory in order to give our threads good
+    ;;names.
+    (reify
+      ForkJoinPool$ForkJoinWorkerThreadFactory
+      (newThread [this pool]
+        (let [retval
+              (-> (ForkJoinPool/defaultForkJoinWorkerThreadFactory)
+                  (.newThread pool))]
+          (.setName retval (thread-name-fn (.getPoolIndex retval)))
+          retval)))
+    nil ;;No special exception handling
+    false ;;Async tasks are processed in LIFO
+    ))
+  (^ForkJoinPool
+   [num-threads]
+   (let [nname (-> (ns-name *ns*)
+                   name)]
+     (create-thread-pool num-threads #(format "%s-%02d" nname %)))))
+
 
 (defn thread-pool-num-threads
   ^long [^ForkJoinPool thread-pool]
