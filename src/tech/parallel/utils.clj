@@ -18,9 +18,10 @@
                                (format "Cannot export macros as this breaks aot: %s"
                                        sym-name)
                                {:symbol sym-name})))
-                           {:doc (:doc org-meta)
-                            :arglists `(quote ~(:arglists org-meta))
-                            :source-map (select-keys org-meta [:file :line :column])}))
+                           (merge org-meta
+                            {:arglists `(quote ~(:arglists org-meta))
+                             :source-map (select-keys org-meta [:file :line :column])
+                             })))
                    #'~(symbol (name src-ns) (name sym-name)))
                  (alter-meta! #'~(symbol (name sym-name))
                               merge
