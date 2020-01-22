@@ -22,8 +22,8 @@
                             {:arglists `(quote ~(:arglists org-meta))
                              :source-map (select-keys org-meta [:file :line :column])
                              })))
-                   #'~(symbol (name src-ns) (name sym-name)))
+                   @#'~(symbol (name src-ns) (name sym-name)))
                  (alter-meta! #'~(symbol (name sym-name))
                               merge
-                              ~(select-keys org-meta [:file :line :column])))))
+                              ~(select-keys org-meta [:file :line :column :tag])))))
                symbol-list))))
