@@ -1,8 +1,6 @@
 (ns tech.parallel
   (:require [clojure.core.async :as async]
             [tech.parallel.for :as pfor]
-            [tech.parallel.require]
-            [tech.parallel.next-item-fn]
             [tech.parallel.utils :as utils]
             [clojure.tools.logging :as log])
   (:import [java.util.concurrent ForkJoinPool Callable Future ExecutorService
