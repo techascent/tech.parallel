@@ -23,4 +23,5 @@
                                (select-keys var-meta#
                                             [:file :line :column
                                              :doc
-                                             :column :tag]))))))))
+                                             :column :tag
+                                             :arglists]))))))))
