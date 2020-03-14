@@ -35,7 +35,7 @@ call this function exactly N times where N is ForkJoinPool/getCommonPoolParallel
                                          (* group-size
                                             (max 0 (- callable-idx overflow))))
                           callable #(indexed-map-fn group-start group-len)]
-                      (.submit common-pool ^Runnable callable))))
+                      (.submit common-pool ^Callable callable))))
             (map #(.get ^Future %))
             (reduce-fn)))))
   ([num-iters indexed-map-fn]

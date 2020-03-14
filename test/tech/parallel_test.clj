@@ -1,6 +1,7 @@
 (ns tech.parallel-test
   (:require [clojure.test :refer :all]
             [tech.parallel :as parallel]
+            [tech.parallel.for :as parallel-for]
             [clojure.tools.logging :as log]))
 
 
@@ -203,3 +204,13 @@
                    (pmap (fn [idx]
                            (parallel/require-resolve 'clojure.inspector/inspect))))))
   (is (find-ns 'clojure.inspector)))
+
+
+(deftest indexed-map-reduce
+  (let [sum
+        (parallel-for/indexed-map-reduce
+         1000
+         (fn [idx n-args]
+           n-args)
+         (partial apply +))]
+    (is (= sum 1000))))
