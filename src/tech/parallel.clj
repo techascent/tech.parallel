@@ -359,12 +359,15 @@ A queue depth of zero indicates to use a normal map operation."
 
 
 (utils/export-symbols tech.parallel.for
+                      indexed-map-reduce
                       launch-parallel-for)
+
 
 (defmacro parallel-for
   "Run a side effecting operator over a contiguous set of indexes"
   [idx-var num-iters & body]
   `(pfor/parallel-for ~idx-var ~num-iters ~@body))
+
 
 (defmacro serial-for
   "Run a side effecting operator over a contiguous set of indexes"
