@@ -57,6 +57,23 @@ call this function exactly N times where N is ForkJoinPool/getCommonPoolParallel
      ~@body))
 
 
+(defmacro dotimes-batched
+  "Uses dotimes under the covers but provides support for a maximum batch size.
+  Use this in production code to limit dotimes so you have safepoint access for
+  really large iterations"
+  [idx-var n-elems batch-size & body]
+  `(let [batch-size# (int ~batch-size)
+         n-elems# (long ~n-elems)
+         n-batches# (quot (+ n-elems# (max 0 (unchecked-dec batch-size#)))
+                          batch-size#)]
+     ;;Doing batches in a doseq so that the JVM doesn't think it is a tight loop.
+     (doseq [batch-idx# (range n-batches#)]
+
+       )
+     )
+  )
+
+
 (defmacro parallel-for
   "Like clojure.core.matrix.macros c-for except this expects index that run from 0 ->
   num-iters.  Idx is named idx-var and body will be called for each idx in parallel.
