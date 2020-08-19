@@ -50,29 +50,42 @@ call this function exactly N times where N is ForkJoinPool/getCommonPoolParallel
    (indexed-map-reduce num-iters indexed-map-fn)))
 
 
-(defmacro serial-for
-  "Utility to quickly switch between parallel/serial loop execution"
-  [idx-var num-iters & body]
-  `(dotimes [~idx-var ~num-iters]
-     ~@body))
-
-
 (defmacro dotimes-batched
   "Uses dotimes under the covers but provides support for a maximum batch size.
   Use this in production code to limit dotimes so you have safepoint access for
   really large iterations"
-  [idx-var n-elems batch-size & body]
+  [[idx-var n-elems batch-size] & body]
   `(let [batch-size# (int ~batch-size)
          n-elems# (long ~n-elems)
          n-batches# (quot (+ n-elems# (max 0 (unchecked-dec batch-size#)))
                           batch-size#)]
      ;;Doing batches in a doseq so that the JVM doesn't think it is a tight loop.
+     ;;This allows the safepoint mechanism in java8 to work correctly.
      (doseq [batch-idx# (range n-batches#)]
+       (let [start-idx# (* (long batch-idx#) batch-size#)
+             end-idx# (min (+ start-idx# batch-size#) n-elems#)]
+         (loop [idx# start-idx#]
+           (when (< idx# end-idx#)
+             (let [~idx-var idx#]
+               ~@body
+               (recur (unchecked-inc idx#)))))))))
 
-       )
-     )
-  )
 
+(defmacro dotimes-safepoint
+  "dotimes that allows safepoint access for parallelized loops that could
+  get quite large."
+  [[idx-var n-elems] & body]
+  `(dotimes-batched
+    [~idx-var ~n-elems 10000]
+    ~@body))
+
+
+(defmacro serial-for
+  "Utility to quickly switch between parallel/serial loop execution"
+  [idx-var num-iters & body]
+  `(dotimes-batched
+    [~idx-var ~num-iters]
+    ~@body))
 
 (defmacro parallel-for
   "Like clojure.core.matrix.macros c-for except this expects index that run from 0 ->
@@ -82,7 +95,7 @@ call this function exactly N times where N is ForkJoinPool/getCommonPoolParallel
   [idx-var num-iters & body]
   `(let [num-iters# (long ~num-iters)]
      (if (< num-iters# (* 2 (ForkJoinPool/getCommonPoolParallelism)))
-       (dotimes [~idx-var num-iters#]
+       (dotimes-safepoint [~idx-var num-iters#]
          ~@body)
        (indexed-map-reduce
         num-iters#
@@ -101,10 +114,13 @@ call this function exactly N times where N is ForkJoinPool/getCommonPoolParallel
    (indexed-map-reduce num-iters indexed-pmap-fn #(apply concat %))))
 
 
+(defn- as-iterable ^Iterable [item] item)
+
+
 (defmacro doiter
   "Execute body for every item in the iterable.  Expecting side effects, returns nil."
   [varname iterable & body]
-  `(let [^Iterable iterable# ~iterable
+  `(let [iterable# (as-iterable ~iterable)
          iter# (.iterator iterable#)]
      (loop [continue?# (.hasNext iter#)]
        (when continue?#
