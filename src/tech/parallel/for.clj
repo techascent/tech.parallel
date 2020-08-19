@@ -114,7 +114,7 @@ call this function exactly N times where N is ForkJoinPool/getCommonPoolParallel
    (indexed-map-reduce num-iters indexed-pmap-fn #(apply concat %))))
 
 
-(defn- as-iterable ^Iterable [item] item)
+(defn as-iterable ^Iterable [item] item)
 
 
 (defmacro doiter
